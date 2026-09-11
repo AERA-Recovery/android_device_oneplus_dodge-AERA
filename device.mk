@@ -19,9 +19,18 @@ PRODUCT_TARGET_VNDK_VERSION := 34
 PRODUCT_USE_DYNAMIC_PARTITIONS := true
 
 PRODUCT_PACKAGES += \
+    aera-audio-bridge \
+    aera-audio-service \
+    aera-browser-jail \
     lpflash \
     lpmake \
     lpunpack
+
+# Dodge/OnePlus 13 Adreno 830 backend. The ABI-matched KGSL module, Gen8
+# firmware, EGL/GLES userspace, and minimal mapper closure stay device-local;
+# generic AERA remains portable and retains its software fallback.
+PRODUCT_VENDOR_PROPERTIES += \
+    ro.hardware.egl=adreno
 
 # OTA certs
 PRODUCT_EXTRA_RECOVERY_KEYS += \
