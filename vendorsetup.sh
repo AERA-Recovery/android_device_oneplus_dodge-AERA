@@ -43,13 +43,16 @@ if [ "$1" = "$FDEVICE" -o "$FOX_BUILD_DEVICE" = "$FDEVICE" ]; then
 	export FOX_USE_DATE_BINARY=1
 	export FOX_DELETE_AROMAFM=1
 	export FOX_VANILLA_BUILD=1
+	export FOX_PRODUCT_PREFIX=AERA
 	export FOX_USE_GREP_BINARY=1
 	export FOX_USE_BUSYBOX_BINARY=1
 	export FOX_USE_XZ_UTILS=1
 	export FOX_VIRTUAL_AB_DEVICE=1
 	export FOX_ALLOW_EARLY_SETTINGS_LOAD=1
 	export FOX_USE_UPDATED_MAGISKBOOT=1
-	export FOX_MOVE_MAGISK_INSTALLER_TO_RAMDISK=1
+	# Keep magiskboot/repacking support, but omit the bundled installer ZIP.
+	# AERA's WPE runtime shares dodge's strict 100 MiB recovery partition.
+	export FOX_DELETE_MAGISK_ADDON=1
 	export FOX_USE_FSCK_EROFS_BINARY=1
 	export FOX_USE_PATCHELF_BINARY=1
 	export FOX_SETTINGS_ROOT_DIRECTORY=/data/recovery
