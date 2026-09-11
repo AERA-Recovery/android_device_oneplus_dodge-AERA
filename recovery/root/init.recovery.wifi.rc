@@ -1,7 +1,5 @@
 on property:post.decrypt.modules=true
     setprop sys.fox.wlan.up 0
-    mkdir /data/vendor/firmware/update/wlan 0777 root root
-    symlink  /vendor/odm/etc/wifi/WCNSS_qcom_cfg.ini /data/vendor/firmware/update/wlan/WCNSS_qcom_cfg.ini
     chmod 222 /sys/bus/platform/drivers/cnss2/b0000000.qcom,cnss-peach/fs_ready
     write /sys/bus/platform/drivers/cnss2/b0000000.qcom,cnss-peach/fs_ready 1
     start fox-wlan-ready
