@@ -19,7 +19,7 @@
 #
 
 
- OF_MAINTAINER := Jonas Salo & Daniel Springer
+ AERA_MAINTAINER := Jonas Salo & Daniel Springer
  AERA_SCREEN_H := 2376
  AERA_STATUS_H := 120
  OF_HIDE_NOTCH := 1
