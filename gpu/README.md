@@ -8,7 +8,7 @@ to the SM8750/`sun` platform and its Adreno 830.
 `msm_kgsl.ko` is ABI-matched to the recovery kernel: the OTA and recovery copies
 of `msm_drm.ko` have the same SHA-256. All KGSL hard and soft dependencies are
 already loaded by the stock recovery module set. `BoardConfig.mk` requests KGSL
-through `TW_LOAD_VENDOR_MODULES`, using the same dependency-aware loader as the
+through `AERA_LOAD_VENDOR_MODULES`, using the same dependency-aware loader as the
 rest of Dodge's vendor modules.
 
 The userspace closure includes only EGL/GLES2 and the mapper/gralloc libraries

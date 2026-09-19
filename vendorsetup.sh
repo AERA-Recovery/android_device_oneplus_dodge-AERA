@@ -19,7 +19,7 @@
 #
 FDEVICE="dodge"
 
-fox_get_target_device() {
+aera_get_target_device() {
 local chkdev=$(echo "$BASH_SOURCE" | grep -w $FDEVICE)
    if [ -n "$chkdev" ]; then 
       AERA_BUILD_DEVICE="$FDEVICE"
@@ -30,7 +30,7 @@ local chkdev=$(echo "$BASH_SOURCE" | grep -w $FDEVICE)
 }
 
 if [ -z "$1" -a -z "$AERA_BUILD_DEVICE" ]; then
-   fox_get_target_device
+   aera_get_target_device
 fi
 
 if [ "$1" = "$FDEVICE" -o "$AERA_BUILD_DEVICE" = "$FDEVICE" ]; then
