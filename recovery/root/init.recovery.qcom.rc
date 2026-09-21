@@ -135,6 +135,11 @@ on property:twrp.modules.loaded=true
     start vendor.oplus.vibrator
     umount /firmware
 
+# This HAL and its private libraries are packaged in the recovery ramdisk, so
+# it can provide haptics during a cold fastbootd boot without mapping /odm.
+on property:twrp.fastboot.mode=1
+    start vendor.oplus.vibrator
+
 # Audio mounts the installed stock logical partitions. Start it only after
 # FBE succeeds so it cannot interfere with prepdecrypt or gatekeeper/weaver.
 on property:post.decrypt.modules=true
