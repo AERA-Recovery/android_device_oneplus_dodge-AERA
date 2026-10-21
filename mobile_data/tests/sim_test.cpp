@@ -37,5 +37,25 @@ int main() {
     catch(const std::exception &){rejected=true;}assert(rejected);
   }
   assert(ValidPin("1234")&&ValidPin("12345678")&&!ValidPin("123")&&!ValidPin("123456789")&&!ValidPin("12a4"));
-  puts("SIM parsing, slot mapping, readiness, retry states and PIN validation passed");
+  SimCards unassigned;SimCard detected;
+  detected.slot=1;detected.present=true;detected.type=2;detected.state=1;detected.aid={0xa0,0x00,0x01};
+  unassigned.cards.push_back(detected);
+  assert(ProvisioningCandidate(unassigned,0)==&unassigned.cards[0]);
+  assert(ResolveSimSubscription(unassigned,0)==0);
+  assert(ResolveSimSubscription(unassigned,1)==1);
+  assert(ResolveSimSubscription(unassigned,2)==2);
+  assert(ProvisioningCandidate(unassigned,1)==&unassigned.cards[0]);
+  assert(!ProvisioningCandidate(unassigned,2));
+  assert(ProvisioningRequest(detected,0)==Bytes({1,2,0,0,1,0x10,5,0,1,3,0xa0,0,1}));
+  unassigned.primary=0;assert(!ProvisioningCandidate(unassigned,0));
+  assert(ResolveSimSubscription(unassigned,0)==1);
+  unassigned.primary=0xffff;unassigned.secondary=0;assert(!ProvisioningCandidate(unassigned,0));
+  assert(ResolveSimSubscription(unassigned,0)==2); // Secondary session can map to slot 1.
+  assert(ResolveSimSubscription(unassigned,1)==1); // Explicit choice is preserved.
+  unassigned.secondary=0xffff;detected.slot=2;unassigned.cards.push_back(detected);
+  assert(!ProvisioningCandidate(unassigned,0));
+  assert(ProvisioningCandidate(unassigned,2)==&unassigned.cards[1]);
+  unassigned.cards[0].state=7;assert(!ProvisioningCandidate(unassigned,1));
+  unassigned.cards[0].state=1;unassigned.cards[0].aid.clear();assert(!ProvisioningCandidate(unassigned,1));
+  puts("SIM parsing, slot mapping, readiness, PIN validation and guarded activation passed");
 }

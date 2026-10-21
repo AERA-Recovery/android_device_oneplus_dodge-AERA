@@ -89,6 +89,7 @@ void Phase(const std::string &state,const std::string &message) {
   fprintf(stderr,"mobile: %s: %s\n",state.c_str(),message.c_str());
 }
 void ClearConnectionLocked() {
+  status["active_subscription"]=0;
   status["connected"]=false;status["registered"]=false;status["signal_valid"]=false;
   status["bars"]=-1;status["signal_dbm"]=0;
   for(const char *key:{"address","gateway","interface","operator","technology","dns1","dns2","effective_apn"})
@@ -243,13 +244,14 @@ struct Session {
       out[entry.first]=SimIdentity(entry.second);
     return out;
   }
-  void WaitForSim(const Endpoint &endpoint,int subscription) {
+  int WaitForSim(const Endpoint &endpoint,int subscription) {
     QmiClient uim(endpoint);
     std::map<unsigned,std::string> identities;
     try {
       identities=SimIdentities(uim);
     }catch(const std::exception &){CheckCancelled();}
     unsigned initializing=0,polls=0;
+    bool activation_attempted=false;
     const std::string request=std::to_string(getpid())+"-"+std::to_string(++pin_request_sequence);
     while(true) {
       CheckCancelled();CheckHelpers();
@@ -257,7 +259,8 @@ struct Session {
         try{identities=SimIdentities(uim);}catch(const std::exception &){CheckCancelled();}
       }
       const auto cards=ParseSimCards(Field(uim.Call(0x2f,{},5,&cancel),0x10));
-      const uint16_t index=subscription==2?cards.secondary:cards.primary;
+      const int resolved=ResolveSimSubscription(cards,subscription);
+      const uint16_t index=resolved==2?cards.secondary:cards.primary;
       const SimCard *selected=nullptr;
       Json::Value sims(Json::arrayValue);
       for(const auto &card:cards.cards) {
@@ -266,6 +269,19 @@ struct Session {
         if(card.slot==unsigned((index>>8)+1)&&card.application==unsigned(index&255))selected=&card;
       }
       if(!selected) {
+        if(!activation_attempted) {
+          const auto *candidate=ProvisioningCandidate(cards,resolved);
+          if(candidate) {
+            // One request only, even if its response times out. Query the
+            // modem afterwards; never repeatedly activate or submit a PIN.
+            activation_attempted=true;
+            Phase("initializing","Activating SIM application");
+            try { uim.Call(0x38,ProvisioningRequest(*candidate,resolved),10,&cancel); }
+            catch(const QmiError &) { throw; }
+            catch(const std::exception &) { CheckCancelled(); }
+            Delay(500);continue;
+          }
+        }
         {
           std::lock_guard<std::mutex> lock(state_mutex);status["sims"]=sims;
           status["sim_state"]="initializing";status["state"]="initializing";
@@ -289,7 +305,7 @@ struct Session {
         }
         SaveLocked();
       }
-      if(state=="ready")return;
+      if(state=="ready")return resolved;
       if(state=="absent")throw std::runtime_error("Selected SIM is not present");
       if(state=="initializing"&&++initializing>60)throw std::runtime_error("SIM initialization timed out");
       std::string pin;
@@ -478,6 +494,17 @@ struct Session {
       status["operator"]=std::string(operator_info.begin()+5,operator_info.begin()+5+operator_info[4]);
     SaveLocked();
   }
+  void BindSubscription(int subscription) {
+    if(subscription!=1&&subscription!=2)throw std::runtime_error("Invalid data subscription");
+    Bytes binding;Tlv(binding,1,Words({static_cast<uint32_t>(subscription)}));
+    wds->Call(0xaf,binding,6,&cancel);
+    const auto bound=wds->Call(0xb0,{},6,&cancel);
+    const auto &selected=Field(bound,0x10);
+    if(selected.size()!=4||U32(selected.data())!=static_cast<uint32_t>(subscription))
+      throw std::runtime_error("The modem did not select the requested data SIM");
+    Bytes nas_binding;Tlv(nas_binding,1,{static_cast<uint8_t>(subscription-1)});
+    nas->Call(0x45,nas_binding,6,&cancel);
+  }
   void Connect(const std::string &apn,int subscription) {
     lease.reset(open(kLease,O_RDWR|O_CREAT|O_CLOEXEC|O_NOFOLLOW,0600));
     if(lease.get()<0||flock(lease.get(),LOCK_SH|LOCK_NB))throw std::runtime_error("Finish the current storage operation first");
@@ -513,23 +540,20 @@ struct Session {
     QmiClient dms(Find(endpoints,2,nase.node));Bytes online;Tlv(online,1,{0});dms.Call(0x2e,online,12,&cancel);
     nas=std::make_unique<QmiClient>(nase);
     wds=std::make_unique<QmiClient>(Find(endpoints,1,nase.node));
-    if(subscription) {
-      Bytes binding;Tlv(binding,1,Words({static_cast<uint32_t>(subscription)}));
-      wds->Call(0xaf,binding,6,&cancel);
-      const auto bound=wds->Call(0xb0,{},6,&cancel);
-      const auto &selected=Field(bound,0x10);
-      if(selected.size()!=4||U32(selected.data())!=static_cast<uint32_t>(subscription))
-        throw std::runtime_error("The modem did not select the requested data SIM");
-      // NAS binding is client-local too, and must match the selected WDS SIM.
-      Bytes nas_binding;Tlv(nas_binding,1,{static_cast<uint8_t>(subscription-1)});
-      nas->Call(0x45,nas_binding,6,&cancel);
-    }
+    if(subscription)BindSubscription(subscription);
     int selected_subscription=subscription;
     if(!selected_subscription) {
       const auto bound=wds->Call(0xb0,{},6,&cancel);const auto &value=Field(bound,0x10);
-      if(value.size()==4)selected_subscription=static_cast<int>(U32(value.data()));
+      // WDS reports 0xff for its default binding, not physical SIM 255.
+      if(value.size()==4&&(U32(value.data())==1||U32(value.data())==2))
+        selected_subscription=static_cast<int>(U32(value.data()));
     }
-    WaitForSim(Find(endpoints,11,nase.node),selected_subscription);
+    selected_subscription=WaitForSim(Find(endpoints,11,nase.node),selected_subscription);
+    // A default WDS binding (0xff) does not select the subscription whose
+    // UIM application we just activated. Bind both clients explicitly.
+    if(!subscription)BindSubscription(selected_subscription);
+    {std::lock_guard<std::mutex> lock(state_mutex);
+      status["active_subscription"]=selected_subscription;SaveLocked();}
     Phase("registering","Waiting for mobile network registration");
     bool attached=false;
     for(int attempt=0;attempt<60&&!attached;++attempt) {
