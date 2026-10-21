@@ -29,17 +29,23 @@ inline std::string ParseModemFeatures(const Bytes &record) {
   return std::string(record.begin(),end);
 }
 
-inline void LoadModemFeatures() {
+inline std::string ReadModemFeatures() {
   Fd source(open("/dev/block/bootdevice/by-name/oplusreserve1",O_RDONLY|O_CLOEXEC));
   struct stat partition{};
   if(source.get()<0||fstat(source.get(),&partition)||!S_ISBLK(partition.st_mode))
     throw std::runtime_error("Cannot read the device modem feature record");
-  // Match the SM8850 OEM feature-map layout, without running its NV-writing tool.
+  // Verified against Dodge CPH2653_16.0.2.402(EX01) odm/bin/hw/mdm_feature:
+  // read_reserve1_mdmfeature (0x4b80) reads 0x3000 bytes at 0x46a000,
+  // adding 0x29000 for UFS (/dev/block/sda). Never run the NV-writing tool.
   Bytes record(12288);
   const off_t offset=access("/dev/block/sda",F_OK)==0?0x493000:0x46a000;
   if(pread(source.get(),record.data(),record.size(),offset)!=static_cast<ssize_t>(record.size()))
     throw std::runtime_error("Cannot read the device modem feature record");
-  const auto xml=ParseModemFeatures(record);
+  return ParseModemFeatures(record);
+}
+
+inline void LoadModemFeatures() {
+  const auto xml=ReadModemFeatures();
   Fd target(open("/dev/mdmfeature",O_WRONLY|O_CLOEXEC|O_NOFOLLOW));struct stat device{};
   if(target.get()<0||fstat(target.get(),&device)||!S_ISCHR(device.st_mode))
     throw std::runtime_error("Modem feature-map interface is unavailable");

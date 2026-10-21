@@ -3,6 +3,8 @@
 #include "qmi.hpp"
 #include "sim.hpp"
 #include "modem_features.hpp"
+#include "oem_miscinfo.hpp"
+#include "nv_override.hpp"
 #include <openssl/sha.h>
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -233,6 +235,7 @@ struct Session {
   bool modem_owned=false,link_owned=false,firmware_mounted=false,dns_owned=false,firmware_path_changed=false;
   bool old_resolv_exists=false;
   bool established=false;
+  unsigned long project=0;
   std::thread network_worker;
   std::atomic<bool> network_stop{false};
   std::mutex network_mutex;
@@ -352,6 +355,10 @@ struct Session {
       if(log<0||input<0)_exit(126);
       dup2(log,STDOUT_FILENO);dup2(log,STDERR_FILENO);dup2(input,STDIN_FILENO);
       setenv("AERA_CELLULAR_FIRMWARE",firmware.c_str(),1);
+      char slot[PROPERTY_VALUE_MAX]{};property_get("ro.boot.slot_suffix",slot,"");
+      if(strcmp(slot,"_a")&&strcmp(slot,"_b"))_exit(126);
+      setenv("AERA_CELLULAR_SLOT",slot,1);
+      setenv("AERA_CELLULAR_PROJECT",std::to_string(project).c_str(),1);
       std::string executable=helper_directory+"/"+name;
       std::vector<char *> argv{const_cast<char *>(executable.c_str())};
       for(const auto &arg:arguments)argv.push_back(const_cast<char *>(arg.c_str()));
@@ -512,8 +519,20 @@ struct Session {
     modem=ModemPath();
     if(Read(modem+"/state")!="offline")throw std::runtime_error("The modem is already running outside AERA mobile data; reboot recovery first");
     Phase("starting","Preparing the modem");
+    project=DodgeHardwareNumber("/proc/oplusVersion/prjName");
+    ValidateDodgeNvOverride(project);
+    fprintf(stderr,"mobile: project %lu static NV source: %s\n",project,
+        project==23821?"verified ramdisk CN image":"active-slot partition");
     Module("rmnet_ctl");Module("ipanetm");Module("rmnet_core");
     LoadModemFeatures();
+    // Extend only the RMTFS RAM view, never the actual OEM NV partition.
+    struct statfs ram{};
+    if(statfs("/tmp",&ram)||(ram.f_type!=0x01021994&&ram.f_type!=0x858458f6))
+      throw std::runtime_error("Modem scratch storage is not RAM-backed");
+    const auto metadata=ReadDodgeOemMiscInfo();
+    if(!Write(std::string(kDirectory)+"/oem-miscinfo",
+        std::string(metadata.begin(),metadata.end()),O_WRONLY|O_CREAT|O_TRUNC))
+      throw std::runtime_error("Cannot prepare OEM modem metadata");
     PrepareFirmware();CheckCancelled();
     rmtfs=Spawn("aera-mobile-rmtfs",{"-r","-P","-o","/dev/block/bootdevice/by-name"});
     tftp=Spawn("aera-mobile-tftp",{"-d"});
