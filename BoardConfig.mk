@@ -131,6 +131,9 @@ AERA_INCLUDE_LPTOOLS := true
 AERA_INCLUDE_REPACKTOOLS := true
 AERA_INCLUDE_RESETPROP := true
 
+# Only ship root-provider modules for the device's Android kernel version.
+AERA_ROOT_MODULE_KERNELS := 6.6
+
 # Debug
 TARGET_USES_LOGD := true
 AERA_INCLUDE_LOGCAT := true
