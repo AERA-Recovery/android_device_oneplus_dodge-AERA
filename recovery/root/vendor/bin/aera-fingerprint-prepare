@@ -1,0 +1,52 @@
+#!/system/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Dodge: expose installed, slot-matched firmware read-only. Never alter enrollment.
+PATH=/system/bin:/sbin
+export PATH
+requested() { [ "$(getprop vendor.aera.fingerprint.start)" = 1 ]; }
+fail() { echo "AERA fingerprint: $*" >&2; exit 1; }
+requested || exit 0
+[ "$(getprop post.decrypt.modules)" = true ] || fail "post-decryption setup is not ready"
+slot="$(getprop ro.boot.slot_suffix)"
+stock=/mnt/aera-fingerprint/odm
+mkdir -p "$stock" /odm/firmware /mnt/vendor/persist || exit 1
+mounted() { awk -v p="$1" '$5 == p { found=1 } END { exit !found }' /proc/self/mountinfo; }
+if ! mounted "$stock"; then
+    source="/dev/block/mapper/odm${slot}"
+    [ -b "$source" ] || fail "active ODM is not mapped"
+    mount -t erofs -o ro "$source" "$stock" 2>/dev/null || \
+        mount -t ext4 -o ro,noload "$source" "$stock" || fail "cannot mount installed ODM"
+fi
+mount -o private none "$stock" || exit 1
+[ -f "$stock/firmware/uff_spi.mdt" ] || fail "installed fingerprint firmware is missing"
+for source in "$stock"/firmware/uff_*; do
+    requested || exit 0
+    [ -f "$source" ] || continue
+    target=/odm/firmware/${source##*/}
+    [ -e "$target" ] || touch "$target" || exit 1
+    if ! mounted "$target"; then
+        mount -o bind "$source" "$target" || exit 1
+        mount -o remount,bind,ro "$target" || exit 1
+        mount -o private none "$target" || exit 1
+    fi
+done
+# Dodge's ultrasonic routing is implemented by the stock HBP touch daemon.
+# Keep its panel-specific firmware/configuration matched to installed ODM.
+[ -d "$stock/firmware/tp" ] || fail "installed touch firmware is missing"
+mkdir -p /odm/firmware/tp || exit 1
+if ! mounted /odm/firmware/tp; then
+    mount -o bind "$stock/firmware/tp" /odm/firmware/tp || exit 1
+    mount -o remount,bind,ro /odm/firmware/tp || exit 1
+    mount -o private none /odm/firmware/tp || exit 1
+fi
+if ! mounted /mnt/vendor/persist; then
+    mount -t ext4 -o ro,noload,noatime,nosuid,nodev \
+        /dev/block/bootdevice/by-name/persist /mnt/vendor/persist || fail "cannot read calibration"
+fi
+chown system:system /dev/fingerprint_dev || exit 1
+chmod 0660 /dev/fingerprint_dev || exit 1
+for node in /sys/kernel/oplus_display/hbm /sys/kernel/oplus_display/nit_brightness; do
+    [ -e "$node" ] && chown system:system "$node"
+done
+setprop vendor.oplus.biometrics.fingerprint.boot_completed 1
+requested && setprop vendor.aera.fingerprint.ready 1
