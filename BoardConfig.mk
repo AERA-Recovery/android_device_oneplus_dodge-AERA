@@ -189,3 +189,6 @@ AERA_INPUT_BLACKLIST := "hbtp_vm"
 # se_omapi
 AERA_INCLUDE_OMAPI := true
 #
+
+# Remove the old patched ODM alias after the root overlay is copied.
+BOARD_RECOVERY_IMAGE_PREPARE += rm -f $(TARGET_RECOVERY_ROOT_OUT)/vendor/odm/lib64/libesesbprovision.so;

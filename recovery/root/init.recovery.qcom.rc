@@ -148,6 +148,10 @@ on property:post.decrypt.modules=true
 on property:ro.crypto.state=encrypted && property:ro.boot.dynamic_partitions=true
     start prepdecrypt.vendor
 
-on property:vendor.sys.listeners.registered=true
+on property:vendor.sys.listeners.registered=true && property:vendor.aera.crypto.consumers_ready=1
     start vendor.ssgtzd
     start vendor.keymint-strongbox
+
+# crypto.ready is a platform property: keep its trigger in the root init context.
+on property:crypto.ready=1
+    start aera-crypto-prepare

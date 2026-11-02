@@ -1,0 +1,33 @@
+#!/system/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Metadata preparation temporarily overlays /vendor. Start its eSE consumers
+# only after /data is mounted and the recovery vendor files are visible again.
+PATH=/system/bin:/sbin
+export PATH
+mounted() {
+    awk -v target="$1" '$5 == target { found=1 } END { exit !found }' /proc/self/mountinfo
+}
+fail() { echo "AERA crypto: $*" >&2; exit 1; }
+[ "$(getprop vendor.aera.crypto.consumers_ready)" = 1 ] && exit 0
+attempt=0
+while mounted /vendor || ! mounted /data || [ ! -d /data/system_de ]; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -ge 600 ] && fail "metadata/vendor preparation did not finish"
+    sleep 0.05
+done
+slot="$(getprop ro.boot.slot_suffix)"
+case "$slot" in _a|_b|"") ;; *) fail "invalid boot slot" ;; esac
+mkdir -p /mnt/vendor/persist /vendor/firmware_mnt || exit 1
+if ! mounted /mnt/vendor/persist; then
+    mount -t ext4 -o ro,noload,noatime,nosuid,nodev \
+        /dev/block/by-name/persist /mnt/vendor/persist || fail "cannot mount calibration read-only"
+fi
+if ! mounted /vendor/firmware_mnt; then
+    mount -t vfat -o ro,noatime,nosuid,nodev \
+        "/dev/block/by-name/modem${slot}" /vendor/firmware_mnt || fail "cannot mount modem firmware read-only"
+fi
+[ -f /vendor/firmware_mnt/image/05B04A44-BF30-42DF-9E2F-B366B980ED19.mdt ] || \
+    fail "secure-element trusted-app firmware is not visible"
+mount -o private none /mnt/vendor/persist || exit 1
+mount -o private none /vendor/firmware_mnt || exit 1
+setprop vendor.aera.crypto.consumers_ready 1
